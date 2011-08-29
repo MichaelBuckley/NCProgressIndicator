@@ -4,7 +4,7 @@ The Nyan Cat Progress Indicator replaces your Mac's progress bars with an animat
 
 It features hand-redized graphics derived from the original Pop Tart Cat GIF.
 
-!(https://github.com/michaelbuckley/ncprogressindicator/raw/master/software-update.png)
+![Software Update window](https://github.com/michaelbuckley/ncprogressindicator/raw/master/software-update.png)
 
 Developers may also compile the code as a framework to include the Nyan Cat Progress Indicator in their own applications. See the licence details below.
 
@@ -30,9 +30,9 @@ Unfortunately, there are not many applications that use progress bars in Mac OS 
 As with all SIMBL plugins, the Nyan Cat Progress Indicator modifies the code of the applications on your system, and it may cause instability on your Mac. It is important to know how to remove the plugin should it cause problems for you. Therefore, there is no installer provided. Luckily, installation is simple.
 
     1. Install [SIMBL](http://www.culater.net/software/SIMBL/SIMBL.php)
-    2. Place `NCProgressIndicator-SIMBL.bundle` into `~/Library/Application Support/SIMBL/Plugins` (create this folder if it does not exist)
+    2. Place `NCProgressIndicator-SIMBL.bundle` into `~/Library/Application Support/SIMBL/Plugins`
 
-On Lion, you can follow (these instructions)[http://osxdaily.com/2011/07/22/access-user-library-folder-in-os-x-lion/] to open the `~/Library` folder.
+You must create the `SIMBL/Plugins` folder if it does not already exist. On Lion, you can follow [these instructions](http://osxdaily.com/2011/07/22/access-user-library-folder-in-os-x-lion/) to open the `~/Library` folder.
 
 ## License
 
