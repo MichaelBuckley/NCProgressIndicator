@@ -324,77 +324,80 @@ static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
 
 - (void)NC_PROGRESS_INDICATOR_METHOD(setup)
 {
-    if (sNCProgressIndicatorRainbowColors == nil)
+    @synchronized(sNCProgressIndicatorRainbowColors)
     {
-        sNCProgressIndicatorRainbowColors = [[NSArray alloc] initWithObjects:
-                                             [NSColor colorWithDeviceRed:1.0 green:0   blue:0   alpha:1.0],
-                                             [NSColor colorWithDeviceRed:1.0 green:0.6 blue:0   alpha:1.0],
-                                             [NSColor colorWithDeviceRed:1.0 green:1.0 blue:0   alpha:1.0],
-                                             [NSColor colorWithDeviceRed:0.2 green:1.0 blue:0   alpha:1.0],
-                                             [NSColor colorWithDeviceRed:0   green:0.6 blue:1.0 alpha:1.0],
-                                             [NSColor colorWithDeviceRed:0.4 green:0.2 blue:1.0 alpha:1.0],
-                                             nil];
-    }
-    
-#ifdef NC_PROGRESS_INDICATOR_SIMBL_PLUGIN
-    NSBundle* bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicatorSIMBL"];
-#else
-    NSBundle* bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicator"];
-#endif
-    
-    
-    if (bundle)
-    {
-        NSImage* regularCatSprites[kNCProgressIndicatorNumRegularCatSprites];
-        NSImage* starSprites[kNCProgressIndicatorNumStarSprites];
-        
-        if (sNCProgressIndicatorRegularCatSprites == nil)
+        if (sNCProgressIndicatorRainbowColors == nil)
         {
-            for (NSUInteger i = 0; i < kNCProgressIndicatorNumRegularCatSprites; ++i)
-            {
-                NSString* imageName = [NSString stringWithFormat:@"ptc_small%d", i + 1];
-                regularCatSprites[i] = [[NSImage alloc] initWithContentsOfURL:[bundle URLForResource:imageName withExtension:@"png"]];
-                [regularCatSprites[i] setFlipped:YES];
-            }
-            
-            sNCProgressIndicatorRegularCatSprites = [[NSArray alloc] initWithObjects:regularCatSprites
-                                                                               count:kNCProgressIndicatorNumRegularCatSprites];
-        
-            for (NSUInteger i = 0; i < kNCProgressIndicatorNumRegularCatSprites; ++i)
-            {
-                [regularCatSprites[i] release];
-            }
-            
+            sNCProgressIndicatorRainbowColors = [[NSArray alloc] initWithObjects:
+                                                 [NSColor colorWithDeviceRed:1.0 green:0   blue:0   alpha:1.0],
+                                                 [NSColor colorWithDeviceRed:1.0 green:0.6 blue:0   alpha:1.0],
+                                                 [NSColor colorWithDeviceRed:1.0 green:1.0 blue:0   alpha:1.0],
+                                                 [NSColor colorWithDeviceRed:0.2 green:1.0 blue:0   alpha:1.0],
+                                                 [NSColor colorWithDeviceRed:0   green:0.6 blue:1.0 alpha:1.0],
+                                                 [NSColor colorWithDeviceRed:0.4 green:0.2 blue:1.0 alpha:1.0],
+                                                 nil];
         }
         
-        if (sNCProgressIndicatorStarSprites == nil)
-        {
-            for (NSUInteger i = 0; i < kNCProgressIndicatorNumStarSprites; ++i)
-            {
-                NSString* imageName = [NSString stringWithFormat:@"star%d", i + 1];
-                starSprites[i] = [[NSImage alloc] initWithContentsOfURL:[bundle URLForResource:imageName withExtension:@"png"]];
-                [starSprites[i] setFlipped:YES];
-            }
-            
-            sNCProgressIndicatorStarSprites = [[NSArray alloc] initWithObjects:starSprites
-                                                                         count:kNCProgressIndicatorNumStarSprites];
-            
-            for (NSUInteger i = 0; i < kNCProgressIndicatorNumStarSprites; ++i)
-            {
-                [starSprites[i] release];
-            }
-        }
+    #ifdef NC_PROGRESS_INDICATOR_SIMBL_PLUGIN
+        NSBundle* bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicatorSIMBL"];
+    #else
+        NSBundle* bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicator"];
+    #endif
         
-        if (sNCProgressIndicatorSmallCatSprites == nil)
+        
+        if (bundle)
         {
-            NSImage* smallHead = [[NSImage alloc] initWithContentsOfURL:
-                                  [bundle URLForResource:@"ptc_small_head" withExtension:@"png"]];
+            NSImage* regularCatSprites[kNCProgressIndicatorNumRegularCatSprites];
+            NSImage* starSprites[kNCProgressIndicatorNumStarSprites];
             
-            [smallHead setFlipped:YES];
+            if (sNCProgressIndicatorRegularCatSprites == nil)
+            {
+                for (NSUInteger i = 0; i < kNCProgressIndicatorNumRegularCatSprites; ++i)
+                {
+                    NSString* imageName = [NSString stringWithFormat:@"ptc_small%d", i + 1];
+                    regularCatSprites[i] = [[NSImage alloc] initWithContentsOfURL:[bundle URLForResource:imageName withExtension:@"png"]];
+                    [regularCatSprites[i] setFlipped:YES];
+                }
+                
+                sNCProgressIndicatorRegularCatSprites = [[NSArray alloc] initWithObjects:regularCatSprites
+                                                                                   count:kNCProgressIndicatorNumRegularCatSprites];
             
-            sNCProgressIndicatorSmallCatSprites = [[NSArray alloc] initWithObjects:&smallHead count:1];
+                for (NSUInteger i = 0; i < kNCProgressIndicatorNumRegularCatSprites; ++i)
+                {
+                    [regularCatSprites[i] release];
+                }
+                
+            }
             
-            [smallHead release];
+            if (sNCProgressIndicatorStarSprites == nil)
+            {
+                for (NSUInteger i = 0; i < kNCProgressIndicatorNumStarSprites; ++i)
+                {
+                    NSString* imageName = [NSString stringWithFormat:@"star%d", i + 1];
+                    starSprites[i] = [[NSImage alloc] initWithContentsOfURL:[bundle URLForResource:imageName withExtension:@"png"]];
+                    [starSprites[i] setFlipped:YES];
+                }
+                
+                sNCProgressIndicatorStarSprites = [[NSArray alloc] initWithObjects:starSprites
+                                                                             count:kNCProgressIndicatorNumStarSprites];
+                
+                for (NSUInteger i = 0; i < kNCProgressIndicatorNumStarSprites; ++i)
+                {
+                    [starSprites[i] release];
+                }
+            }
+            
+            if (sNCProgressIndicatorSmallCatSprites == nil)
+            {
+                NSImage* smallHead = [[NSImage alloc] initWithContentsOfURL:
+                                      [bundle URLForResource:@"ptc_small_head" withExtension:@"png"]];
+                
+                [smallHead setFlipped:YES];
+                
+                sNCProgressIndicatorSmallCatSprites = [[NSArray alloc] initWithObjects:&smallHead count:1];
+                
+                [smallHead release];
+            }
         }
     }
     
