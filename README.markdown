@@ -29,9 +29,9 @@ Unfortunately, there are not many applications that use progress bars in Mac OS 
 
 As with all SIMBL plugins, the Nyan Cat Progress Indicator modifies the code of the applications on your system, and it may cause instability on your Mac. It is important to know how to remove the plugin should it cause problems for you. Therefore, there is no installer provided. Luckily, installation is simple.
 
-    1. [Download](https://github.com/downloads/MichaelBuckley/NCProgressIndicator/NCProgressIndicator-SIMBL.bundle.zip) and unzip the plugin
-    2. Install [SIMBL](http://www.culater.net/software/SIMBL/SIMBL.php)
-    3. Place `NCProgressIndicator-SIMBL.bundle` into `~/Library/Application Support/SIMBL/Plugins`
+1. [Download](https://github.com/downloads/MichaelBuckley/NCProgressIndicator/NCProgressIndicator-SIMBL.bundle.zip) and unzip the plugin
+2. Install [SIMBL](http://www.culater.net/software/SIMBL/SIMBL.php)
+3. Place `NCProgressIndicator-SIMBL.bundle` into `~/Library/Application Support/SIMBL/Plugins`
 
 You must create the `SIMBL/Plugins` folder if it does not already exist. On Lion, you can follow [these instructions](http://osxdaily.com/2011/07/22/access-user-library-folder-in-os-x-lion/) to open the `~/Library` folder.
 
