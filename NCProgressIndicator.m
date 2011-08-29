@@ -324,7 +324,7 @@ static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
 
 - (void)NC_PROGRESS_INDICATOR_METHOD(setup)
 {
-    @synchronized(sNCProgressIndicatorRainbowColors)
+    @synchronized([self class])
     {
         if (sNCProgressIndicatorRainbowColors == nil)
         {
