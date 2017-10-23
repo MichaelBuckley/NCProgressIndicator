@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Michael Buckley
+/* Copyright (c) 2011-2017 Michael Buckley
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,75 +30,34 @@
  * http://www.prguitarman.com/index.php?id=348
  */
 
-#import <objc/message.h>
-
 #import "NCProgressIndicator.h"
 
-#ifdef NC_PROGRESS_INDICATOR_SIMBL_PLUGIN
-#import "JRSwizzle.h"
+NS_ASSUME_NONNULL_BEGIN
 
-#define NC_PROGRESS_INDICATOR_METHOD(x)     NCProgressIndicator_##x
-#define NC_PROGRESS_INDICATOR_SUPER_CALL(x) [self NC_PROGRESS_INDICATOR_METHOD(x)]
+@interface NSProgressIndicator ()
 
-#else
+@property (nonatomic, readonly, assign) BOOL overridesDrawing;
+@property (nonatomic, readonly, assign) BOOL bouncesRainbow;
+@property (nonatomic, readonly, assign) BOOL shouldResize;
+@property (nonatomic, readwrite, assign, getter=isAnimating) BOOL animating;
+@property (nonatomic, readwrite, assign) NSInteger occulsionCount;
+@property (nonatomic, readonly, assign) double percentValue;
 
-#define NC_PROGRESS_INDICATOR_METHOD(x)     x
-#define NC_PROGRESS_INDICATOR_SUPER_CALL(x) [super x]
-
-#endif
-
-@interface NCProgressIndicatorTimer : NSObject
-{
-    @protected
-    NSMutableSet* views;
-    NSTimer* timer;
-}
-
-- (void)animationTimerMethod;
-
-- (void)addView:(NSView*)aView;
-- (void)removeView:(NSView*)aView;
+@property (class, nonatomic, readonly) NSBundle* bundle;
+@property (class, nonatomic, readonly) NSArray<NSImage*>* starSprites;
+@property (class, nonatomic, readonly) NSArray<NSImage*>* regularCatSprites;
+@property (class, nonatomic, readonly) NSArray<NSImage*>* smallCatSprites;
+@property (class, nonatomic, readonly) NSArray<NSColor*>* rainbowColors;
+@property (class, nonatomic, readonly) dispatch_queue_t queue;
+@property (class, nonatomic, readonly) dispatch_source_t animationTimer;
+@property (class, nonatomic, readonly) NSUInteger frameNum;
+@property (class, nonatomic, readonly) NSMutableSet<NCProgressIndicator*>* animatingViews;
 
 @end
 
-@interface NCProgressIndicatorThread : NSObject
-{
-@protected
-    NSMutableSet* views;
-    NSThread* thread;
-}
-
-- (void)animationThreadMethod:(id)aParam;
-
-- (void)addView:(NSView*)aView;
-- (void)removeView:(NSView*)aView;
-
-@end
-
-@interface NCProgressIndicator ()
-
-- (void)NC_PROGRESS_INDICATOR_METHOD(setup);
-- (void)NC_PROGRESS_INDICATOR_METHOD(startAnimationTimerIfNeeded);
-- (void)NC_PROGRESS_INDICATOR_METHOD(startAnimationThreadIfNeeded);
-
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle);
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(shouldResize);
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(bouncesRainbow);
-
-- (double)NC_PROGRESS_INDICATOR_METHOD(percentValue);
-
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawBackground:(NSRect)dirtyRect frameCount:(NSUInteger)frameCount);
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawRainbow:   (NSRect)dirtyRect frameCount:(NSUInteger)frameCount);
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawStars:     (NSRect)dirtyRect frameCount:(NSUInteger)frameCount);
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawSprite:    (NSRect)dirtyRect frameCount:(NSUInteger)frameCount);
-
-@end
-
-const NSTimeInterval kNCProgressIndicatorFrameDelay           = 0.07;
+const NSInteger      kNCProgressIndicatorFrameDelay           = 0.07 * NSEC_PER_SEC;
 const CGFloat        kNCProgressIndicatorRegularBarHeight     = 20.0;
 const CGFloat        kNCProgressIndicatorRainbowSegmentWidth  = 9.0;
-const NSUInteger     kNCProgressIndicatorNumAnimationFrames   = 60;
-const NSUInteger     kNCProgressIndicatorNumStarSprites       = 6;
 const CGFloat        kNCProgressIndicatorStarSpeed            = 6.0;
 const CGFloat        kNCProgressIndicatorStarDistance         = 18.0;
 const NSUInteger     kNCProgressIndicatorNumRegularCatSprites = 6;
@@ -106,505 +65,326 @@ const NSUInteger     kNCProgressIndicatorRainbowPeriod        = 4;
 const CGFloat        kNCProgressIndicatorRegularRainbowOffset = 16.0;
 const CGFloat        kNCProgressIndicatorSmallRainbowOffset   = 3.0;
 
-static NSUInteger                 sNCProgressIndicatorTimerFrameCount   = 0;
-static NSUInteger                 sNCProgressIndicatorThreadFrameCount  = 0;
-static NCProgressIndicatorThread* sNCProgressIndicatorAnimationThread   = nil;
-static NCProgressIndicatorTimer*  sNCProgressIndicatorAnimationTimer    = nil;
-static NSArray*                   sNCProgressIndicatorStarSprites       = nil;
-static NSArray*                   sNCProgressIndicatorRegularCatSprites = nil;
-static NSArray*                   sNCProgressIndicatorSmallCatSprites   = nil;
-static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
+static NSUInteger sNCProgressIndicatorFrameNum = 0;
 
-@implementation NCProgressIndicatorTimer
-
-- (id)init
-{
-    if (self = [super init])
-    {
-        sNCProgressIndicatorTimerFrameCount = sNCProgressIndicatorThreadFrameCount;
-        
-        views = [[NSMutableSet alloc] init];
-        
-        NSMethodSignature* signature = [[self class] instanceMethodSignatureForSelector:@selector(animationTimerMethod)]; 
-        NSInvocation* invocation     = [NSInvocation invocationWithMethodSignature:signature];
-        
-        [invocation setTarget:self];
-        [invocation setSelector:@selector(animationTimerMethod)];
-        
-        timer = [NSTimer timerWithTimeInterval:kNCProgressIndicatorFrameDelay
-                                    invocation:invocation
-                                       repeats:YES];
-        
-        [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
-    }
-    
-    return self;
-}
-
-- (void)dealloc
-{
-    @synchronized([self class])
-    {
-        [views release];
-        views = nil;
-    }
-    
-    if (timer != nil)
-    {
-        [timer invalidate];
-        timer = nil;
-    }
-    
-    [super dealloc];
-}
-
-- (void)animationTimerMethod
-{
-    sNCProgressIndicatorTimerFrameCount = sNCProgressIndicatorTimerFrameCount + 1 % kNCProgressIndicatorNumAnimationFrames;
-    
-    @synchronized([self class])
-    {
-        for (NSView* view in views)
-        {
-            [view display];
-        }
-    }
-}
-
-- (void)addView:(NSView*)aView
-{
-    @synchronized([self class])
-    {
-        [views addObject:aView];
-    }
-}
-
-- (void)removeView:(NSView*)aView
-{
-    @synchronized([self class])
-    {
-        [views removeObject:aView];
-        
-        if ([views count] == 0)
-        {
-            sNCProgressIndicatorAnimationTimer = nil;
-            
-            [timer invalidate];
-            timer = nil;
-            
-            [self release];
-        }
-    }
-}
-
-@end
-
-@implementation NCProgressIndicatorThread
-
-- (id)init
-{
-    if (self = [super init])
-    {
-        views  = [[NSMutableSet alloc] init];
-        thread = [[NSThread alloc] initWithTarget:self selector:@selector(animationThreadMethod:) object:nil];
-        [thread start];
-    }
-    
-    return self;
-}
-
-- (void)dealloc
-{
-    @synchronized([self class])
-    {
-        [views release];
-        views = nil;
-    }
-    
-    [thread release];
-    thread = nil;
-    
-    [super dealloc];
-}
-
-- (void)animationThreadMethod:(id)aParam
-{
-    NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
-    
-    sNCProgressIndicatorThreadFrameCount = sNCProgressIndicatorTimerFrameCount - 1;
-    
-    while (![thread isCancelled])
-    {
-        NSDate* startDate = [[NSDate alloc] init];
-        
-        sNCProgressIndicatorThreadFrameCount = sNCProgressIndicatorThreadFrameCount + 1 % kNCProgressIndicatorNumAnimationFrames;
-        
-        @synchronized([self class])
-        {
-            for (NSView* view in views)
-            {
-                [view setNeedsDisplay:YES];
-            }
-        }
-        
-        NSDate* awakeDate = [[NSDate alloc] initWithTimeInterval:kNCProgressIndicatorFrameDelay
-                                                       sinceDate:startDate];
-        
-        [NSThread sleepUntilDate:awakeDate];
-        
-        [startDate release];
-        [awakeDate release];
-    }
-    
-    [pool drain];
-    
-    [self release];
-}
-
-- (void)addView:(NSView*)aView
-{
-    @synchronized([self class])
-    {
-        [views addObject:aView];
-    }
-}
-
-- (void)removeView:(NSView*)aView
-{
-    @synchronized([self class])
-    {
-        [views removeObject:aView];
-        
-        if ([views count] == 0)
-        {
-            sNCProgressIndicatorAnimationThread = nil;
-            [thread cancel];
-        }
-    }
-}
-
-@end
+static dispatch_queue_t animationTimerQueue;
+static dispatch_source_t animationTimer;
 
 @implementation NCProgressIndicator
 
-- (id)NC_PROGRESS_INDICATOR_METHOD(initWithFrame:(NSRect)frameRect)
+@dynamic overridesDrawing;
+@dynamic bouncesRainbow;
+@dynamic shouldResize;
+@dynamic percentValue;
+
+@synthesize animating;
+@synthesize occulsionCount;
+
+- (void)dealloc
 {
-    if (self = NC_PROGRESS_INDICATOR_SUPER_CALL(initWithFrame:frameRect))
-    {
-        [self NC_PROGRESS_INDICATOR_METHOD(setup)];
-    }
-    
-    return self;
+    [self stopAnimation:self];
 }
 
-- (id)NC_PROGRESS_INDICATOR_METHOD(initWithCoder:(NSCoder *)aDecoder)
+#pragma mark - Class methods
+
++ (NSBundle*)bundle
 {
-    if (self = NC_PROGRESS_INDICATOR_SUPER_CALL(initWithCoder:aDecoder))
-    {
-        [self NC_PROGRESS_INDICATOR_METHOD(setup)];
-    }
-    
-    return self;
+    static dispatch_once_t onceToken = 0;
+    static NSBundle* bundle = nil;
+
+    dispatch_once(&onceToken, ^{
+        bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicator"];
+    });
+
+    return bundle;
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(dealloc)
++ (NSArray<NSImage*>*)starSprites
 {
-    @synchronized([NCProgressIndicatorTimer class])
+    static dispatch_once_t onceToken = 0;
+    static NSArray<NSImage*>* starSprites = nil;
+
+    dispatch_once(&onceToken, ^
     {
-        [sNCProgressIndicatorAnimationTimer removeView:self];
-    }
-    
-    @synchronized([NCProgressIndicatorThread class])
-    {
-        [sNCProgressIndicatorAnimationThread removeView:self];
-    }
-    
-    NC_PROGRESS_INDICATOR_SUPER_CALL(dealloc);
+        starSprites = @[[self.bundle imageForResource:@"star1"],
+                        [self.bundle imageForResource:@"star2"],
+                        [self.bundle imageForResource:@"star3"],
+                        [self.bundle imageForResource:@"star4"],
+                        [self.bundle imageForResource:@"star5"],
+                        [self.bundle imageForResource:@"star6"]];
+    });
+
+    return starSprites;
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(setup)
++ (NSArray<NSImage*>*)regularCatSprites
 {
-    @synchronized([self class])
+    static dispatch_once_t onceToken = 0;
+    static NSArray<NSImage*>* catSprites = nil;
+
+    dispatch_once(&onceToken, ^
     {
-        if (sNCProgressIndicatorRainbowColors == nil)
+        catSprites = @[[self.bundle imageForResource:@"ptc_small1"],
+                       [self.bundle imageForResource:@"ptc_small2"],
+                       [self.bundle imageForResource:@"ptc_small3"],
+                       [self.bundle imageForResource:@"ptc_small4"],
+                       [self.bundle imageForResource:@"ptc_small5"],
+                       [self.bundle imageForResource:@"ptc_small6"]];
+    });
+
+    return catSprites;
+}
+
++ (NSArray<NSImage*>*)smallCatSprites
+{
+    static dispatch_once_t onceToken = 0;
+    static NSArray<NSImage*>* catSprites = nil;
+
+    dispatch_once(&onceToken, ^
+    {
+        catSprites = @[[self.bundle imageForResource:@"ptc_small_head"]];
+    });
+
+    return catSprites;
+}
+
++ (NSArray<NSColor*>*)rainbowColors
+{
+    static dispatch_once_t onceToken = 0;
+    static NSArray<NSColor*>* rainbowColors = nil;
+
+    dispatch_once(&onceToken, ^{
+        rainbowColors = @[[NSColor colorWithDeviceRed:1.0 green:0   blue:0   alpha:1.0],
+                          [NSColor colorWithDeviceRed:1.0 green:0.6 blue:0   alpha:1.0],
+                          [NSColor colorWithDeviceRed:1.0 green:1.0 blue:0   alpha:1.0],
+                          [NSColor colorWithDeviceRed:0.2 green:1.0 blue:0   alpha:1.0],
+                          [NSColor colorWithDeviceRed:0   green:0.6 blue:1.0 alpha:1.0],
+                          [NSColor colorWithDeviceRed:0.4 green:0.2 blue:1.0 alpha:1.0]];
+    });
+
+    return rainbowColors;
+}
+
++ (dispatch_queue_t)queue
+{
+    static dispatch_once_t onceToken = 0;
+    static dispatch_queue_t queue;
+
+    dispatch_once(&onceToken, ^
+    {
+        queue = dispatch_queue_create("com.buckleyisms.NCProgressIndicator.queue", DISPATCH_QUEUE_SERIAL);
+    });
+
+    return queue;
+}
+
++ (dispatch_source_t)animationTimer
+{
+    static dispatch_once_t onceToken = 0;
+
+    dispatch_once(&onceToken, ^{
+        animationTimerQueue = dispatch_queue_create("com.buckleyisms.NCProgressIndicator.timer", DISPATCH_QUEUE_SERIAL);
+        animationTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, animationTimerQueue);
+
+        dispatch_source_set_timer(animationTimer,
+                                  dispatch_time(DISPATCH_TIME_NOW, kNCProgressIndicatorFrameDelay),
+                                  kNCProgressIndicatorFrameDelay,
+                                  0);
+
+        dispatch_source_set_event_handler(animationTimer, ^
         {
-            sNCProgressIndicatorRainbowColors = [[NSArray alloc] initWithObjects:
-                                                 [NSColor colorWithDeviceRed:1.0 green:0   blue:0   alpha:1.0],
-                                                 [NSColor colorWithDeviceRed:1.0 green:0.6 blue:0   alpha:1.0],
-                                                 [NSColor colorWithDeviceRed:1.0 green:1.0 blue:0   alpha:1.0],
-                                                 [NSColor colorWithDeviceRed:0.2 green:1.0 blue:0   alpha:1.0],
-                                                 [NSColor colorWithDeviceRed:0   green:0.6 blue:1.0 alpha:1.0],
-                                                 [NSColor colorWithDeviceRed:0.4 green:0.2 blue:1.0 alpha:1.0],
-                                                 nil];
-        }
-        
-    #ifdef NC_PROGRESS_INDICATOR_SIMBL_PLUGIN
-        NSBundle* bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicatorSIMBL"];
-    #else
-        NSBundle* bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicator"];
-    #endif
-        
-        
-        if (bundle)
+            dispatch_async(self.class.queue, ^
+            {
+                ++sNCProgressIndicatorFrameNum;
+
+                for (NCProgressIndicator* view in self.animatingViews)
+                {
+                    dispatch_async(dispatch_get_main_queue(), ^
+                    {
+                        view.needsDisplay = YES;
+                    });
+                }
+            });
+        });
+    });
+
+    return animationTimer;
+}
+
++ (NSUInteger)frameNum
+{
+    __block NSUInteger frameNum = 0;
+
+    dispatch_sync(self.queue, ^
+    {
+        frameNum = sNCProgressIndicatorFrameNum;
+    });
+
+    return frameNum;
+}
+
++ (NSMutableSet<NCProgressIndicator*>*)animatingViews
+{
+    static dispatch_once_t onceToken = 0;
+    static NSMutableSet<NCProgressIndicator*>* animatingViews = nil;
+
+    dispatch_once(&onceToken, ^
+    {
+        animatingViews = [NSMutableSet new];
+    });
+
+    return animatingViews;
+}
+
+#pragma mark - Animation
+
+- (void)viewWillMoveToWindow:(nullable NSWindow*)newWindow
+{
+    NSNotificationCenter* nc = NSNotificationCenter.defaultCenter;
+
+    [nc removeObserver:self name:NSWindowDidChangeOcclusionStateNotification object:self.window];
+
+    [nc addObserver:self
+           selector:@selector(occulsionChanged:)
+               name:NSWindowDidChangeOcclusionStateNotification
+             object:newWindow];
+}
+
+- (void)occulsionChanged:(NSNotification*)notification
+{
+    if (self.window.occlusionState & NSWindowOcclusionStateVisible)
+    {
+        if (self.occulsionCount > 0)
         {
-            NSImage* regularCatSprites[kNCProgressIndicatorNumRegularCatSprites];
-            NSImage* starSprites[kNCProgressIndicatorNumStarSprites];
-            
-            if (sNCProgressIndicatorRegularCatSprites == nil)
-            {
-                for (NSUInteger i = 0; i < kNCProgressIndicatorNumRegularCatSprites; ++i)
-                {
-                    NSString* imageName = [NSString stringWithFormat:@"ptc_small%d", i + 1];
-                    regularCatSprites[i] = [[NSImage alloc] initWithContentsOfURL:[bundle URLForResource:imageName withExtension:@"png"]];
-                    [regularCatSprites[i] setFlipped:YES];
-                }
-                
-                sNCProgressIndicatorRegularCatSprites = [[NSArray alloc] initWithObjects:regularCatSprites
-                                                                                   count:kNCProgressIndicatorNumRegularCatSprites];
-            
-                for (NSUInteger i = 0; i < kNCProgressIndicatorNumRegularCatSprites; ++i)
-                {
-                    [regularCatSprites[i] release];
-                }
-                
-            }
-            
-            if (sNCProgressIndicatorStarSprites == nil)
-            {
-                for (NSUInteger i = 0; i < kNCProgressIndicatorNumStarSprites; ++i)
-                {
-                    NSString* imageName = [NSString stringWithFormat:@"star%d", i + 1];
-                    starSprites[i] = [[NSImage alloc] initWithContentsOfURL:[bundle URLForResource:imageName withExtension:@"png"]];
-                    [starSprites[i] setFlipped:YES];
-                }
-                
-                sNCProgressIndicatorStarSprites = [[NSArray alloc] initWithObjects:starSprites
-                                                                             count:kNCProgressIndicatorNumStarSprites];
-                
-                for (NSUInteger i = 0; i < kNCProgressIndicatorNumStarSprites; ++i)
-                {
-                    [starSprites[i] release];
-                }
-            }
-            
-            if (sNCProgressIndicatorSmallCatSprites == nil)
-            {
-                NSImage* smallHead = [[NSImage alloc] initWithContentsOfURL:
-                                      [bundle URLForResource:@"ptc_small_head" withExtension:@"png"]];
-                
-                [smallHead setFlipped:YES];
-                
-                sNCProgressIndicatorSmallCatSprites = [[NSArray alloc] initWithObjects:&smallHead count:1];
-                
-                [smallHead release];
-            }
+            [self startAnimation:self];
+            self.occulsionCount = 0;
         }
     }
-    
-    [self sizeToFit];
-        
-    if ([self usesThreadedAnimation])
+    else if (self.isAnimating)
     {
-        [self NC_PROGRESS_INDICATOR_METHOD(startAnimationThreadIfNeeded)];
+        // After this method returns, Appkit will immediately call
+        // -stopAnimation:, which will decrement this to 1. If the user calls
+        // -stopAnimation while the window is still occluded, it will be
+        // decremented again, so we don't restart the animation when the window
+        // becomes visible again.
+        self.occulsionCount = 2;
+    }
+}
+
+- (void)startAnimation:(nullable id)sender
+{
+    self.animating = YES;
+
+    if (self.overridesDrawing)
+    {
+        dispatch_async(self.class.queue, ^
+                       {
+                           if (![self.class.animatingViews containsObject: self])
+                           {
+                               [self.class.animatingViews addObject: self];
+
+                               if (self.class.animatingViews.count == 1)
+                               {
+                                   dispatch_resume(self.class.animationTimer);
+                               }
+                           }
+                       });
     }
     else
     {
-        [self NC_PROGRESS_INDICATOR_METHOD(startAnimationTimerIfNeeded)];
+        [super startAnimation:sender];
     }
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(startAnimationTimerIfNeeded)
+- (void)stopAnimation:(nullable id)sender
 {
-    if ([self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)])
+    self.animating = NO;
+
+    if (self.overridesDrawing)
     {
-        @synchronized([NCProgressIndicatorTimer class])
+        if (self.occulsionCount > 0)
         {
-            if (sNCProgressIndicatorAnimationTimer == nil)
-            {
-                sNCProgressIndicatorAnimationTimer = [[NCProgressIndicatorTimer alloc] init];
-            }
-            
-            [sNCProgressIndicatorAnimationTimer addView:self];
+            --self.occulsionCount;
         }
-        
-        [sNCProgressIndicatorAnimationThread removeView:self];
-    }
-}
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(startAnimationThreadIfNeeded)
-{
-    if ([self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)])
-    {
-        @synchronized([NCProgressIndicatorThread class])
-        {
-            if (sNCProgressIndicatorAnimationThread  == nil)
-            {
-                sNCProgressIndicatorAnimationThread = [[NCProgressIndicatorThread alloc] init];
-            }
-            
-            [sNCProgressIndicatorAnimationThread addView:self];
-        }
-        
-        [sNCProgressIndicatorAnimationTimer removeView:self];
-    }
-}
+        dispatch_async(self.class.queue, ^
+                       {
+                           [self.class.animatingViews removeObject: self];
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(setUsesThreadedAnimation:(BOOL)threadedAnimation)
-{
-    NC_PROGRESS_INDICATOR_SUPER_CALL(setUsesThreadedAnimation:threadedAnimation);
-    
-    if (threadedAnimation)
-    {
-        [self NC_PROGRESS_INDICATOR_METHOD(startAnimationThreadIfNeeded)];
+                           if (self.class.animatingViews.count == 0)
+                           {
+                               dispatch_suspend(self.class.animationTimer);
+                           }
+                       });
     }
     else
     {
-        [self NC_PROGRESS_INDICATOR_METHOD(startAnimationTimerIfNeeded)];
+        [super stopAnimation:sender];
     }
 }
 
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)
-{
-    return [self style] == NSProgressIndicatorBarStyle;
-}
 
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(bouncesRainbow)
-{
-    return [self style] == NSProgressIndicatorBarStyle && [self controlSize] == NSRegularControlSize;
-}
+#pragma mark - Drawing
 
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(shouldResize)
+- (void)drawRect:(NSRect)dirtyRect
 {
-    return [self style] == NSProgressIndicatorBarStyle && [self controlSize] == NSRegularControlSize;
-}
-
-- (void)NC_PROGRESS_INDICATOR_METHOD(sizeToFit)
-{
-    if ([self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)] && [self NC_PROGRESS_INDICATOR_METHOD(shouldResize)])
-    {
-        NSRect frame = [self frame];
-        frame.size.height = kNCProgressIndicatorRegularBarHeight;
-        [self setFrame:frame];
-        
-        frame.origin.x = 0;
-        frame.origin.y = 0;
-        [self setBounds:frame];
-    }
-    else if (![self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)])
-    {
-        [sNCProgressIndicatorAnimationTimer  removeView:self];
-        [sNCProgressIndicatorAnimationThread removeView:self];
-    }
-}
-
-- (double)NC_PROGRESS_INDICATOR_METHOD(percentValue)
-{
-    if ([self isIndeterminate])
-    {
-        return 1.0;
-    }
-    else
-    {
-        return ([self doubleValue] - [self minValue]) / ([self maxValue] - [self minValue]);
-    }
-}
-
-- (void)NC_PROGRESS_INDICATOR_METHOD(startAnimation:(id)sender)
-{
-    if (![self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)])
-    {
-        NC_PROGRESS_INDICATOR_SUPER_CALL(startAnimation:sender);
-    }
-}
-
-- (void)NC_PROGRESS_INDICATOR_METHOD(stopAnimation:(id)sender)
-{
-    if (![self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)])
-    {
-        NC_PROGRESS_INDICATOR_SUPER_CALL(stopAnimation:sender);
-    }
-}
-
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawRect:(NSRect)dirtyRect)
-{
-    if (sNCProgressIndicatorAnimationThread      == nil
-        || sNCProgressIndicatorAnimationTimer    == nil
-        || sNCProgressIndicatorStarSprites       == nil
-        || sNCProgressIndicatorRegularCatSprites == nil
-        || sNCProgressIndicatorSmallCatSprites   == nil
-        || sNCProgressIndicatorRainbowColors     == nil)
-    {
-        [self NC_PROGRESS_INDICATOR_METHOD(setup)];
-    }
-    
-    if ([self NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)])
+    if (self.overridesDrawing)
     {
         [NSGraphicsContext saveGraphicsState];
                 
-        [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationNone];
+        [NSGraphicsContext currentContext].imageInterpolation = NSImageInterpolationNone;
         
         [[NSBezierPath bezierPathWithRect:dirtyRect] addClip];
         
-        NSUInteger frameCount = 0;
+        NSUInteger frameNum = self.class.frameNum;
         
-        if ([self usesThreadedAnimation])
-        {
-            frameCount = sNCProgressIndicatorThreadFrameCount;
-        }
-        else
-        {
-            frameCount = sNCProgressIndicatorTimerFrameCount;
-        }
-        
-        [self NC_PROGRESS_INDICATOR_METHOD(drawBackground:dirtyRect frameCount:frameCount)];
-        [self NC_PROGRESS_INDICATOR_METHOD(drawRainbow:dirtyRect frameCount:frameCount)];
-        [self NC_PROGRESS_INDICATOR_METHOD(drawStars:dirtyRect frameCount:frameCount)];
-        [self NC_PROGRESS_INDICATOR_METHOD(drawSprite:dirtyRect frameCount:frameCount)];
+        [self drawBackground:dirtyRect frameNum:frameNum];
+        [self drawRainbow:dirtyRect frameNum:frameNum];
+        [self drawStars:dirtyRect frameNum:frameNum];
+        [self drawSprite:dirtyRect frameNum:frameNum];
                         
         [NSGraphicsContext restoreGraphicsState];
     }
     else
     {
-        NC_PROGRESS_INDICATOR_SUPER_CALL(drawRect:dirtyRect);
+        [super drawRect:dirtyRect];
     }
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawBackground:(NSRect)dirtyRect frameCount:(NSUInteger)frameCount)
+- (void)drawBackground:(NSRect)dirtyRect frameNum:(NSUInteger)frameNum
 {
-    NSColor* backgroundColor = [NSColor colorWithDeviceRed:0 green:0.2 blue:0.4 alpha:1.0];
+    NSColor *backgroundColor = [NSColor colorWithDeviceRed:0 green:0.2 blue:0.4 alpha:1.0];
     [backgroundColor set];
     
-    [NSBezierPath fillRect:[self bounds]];
+    [NSBezierPath fillRect:self.bounds];
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawStars:(NSRect)dirtyRect frameCount:(NSUInteger)frameCount)
+- (void)drawStars:(NSRect)dirtyRect frameNum:(NSUInteger)frameNum
 {
-    if (sNCProgressIndicatorStarSprites != nil && [sNCProgressIndicatorStarSprites count] > 0)
+    if (self.class.starSprites.count > 0)
     {
         BOOL bottom            = YES;    
-        NSImage* bottomSprite  = [sNCProgressIndicatorStarSprites objectAtIndex:
-                                  frameCount % [sNCProgressIndicatorStarSprites count]];
-        NSImage* topSprite     = [sNCProgressIndicatorStarSprites objectAtIndex:
-                                  (frameCount + (kNCProgressIndicatorNumStarSprites / 2)) % [sNCProgressIndicatorStarSprites count]];
+        NSImage *bottomSprite  = self.class.starSprites[frameNum % self.class.starSprites.count];
+        NSImage *topSprite     = self.class.starSprites[(frameNum + (self.class.starSprites.count / 2)) % self.class.starSprites.count];
         
-        CGFloat x              = 0 - kNCProgressIndicatorStarSpeed * (frameCount % [sNCProgressIndicatorStarSprites count]);
-        CGFloat bottomY        = [self bounds].size.height - [bottomSprite size].height - 1;
+        CGFloat x              = 0 - kNCProgressIndicatorStarSpeed * (frameNum % self.class.starSprites.count);
+        CGFloat bottomY        = self.bounds.size.height - bottomSprite.size.height - 1;
         CGFloat topY           = 1;
         
-        while (x <= [self bounds].size.width)
+        while (x <= self.bounds.size.width)
         {
             if (bottom)
             {
                 [bottomSprite drawAtPoint:NSMakePoint(x, bottomY)
                                  fromRect:NSZeroRect
-                                operation:NSCompositeSourceOver
+                                operation:NSCompositingOperationSourceOver
                                  fraction:1.0];
             }
             else
             {
                 [topSprite drawAtPoint:NSMakePoint(x, topY)
                               fromRect:NSZeroRect
-                             operation:NSCompositeSourceOver
+                             operation:NSCompositingOperationSourceOver
                               fraction:1.0];
             }
             
@@ -614,14 +394,14 @@ static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
     }
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawRainbow:(NSRect)dirtyRect frameCount:(NSUInteger)frameCount)
+- (void)drawRainbow:(NSRect)dirtyRect frameNum:(NSUInteger)frameNum
 {
-    if (sNCProgressIndicatorRainbowColors != nil && [sNCProgressIndicatorRainbowColors count] > 0)
+    if (self.class.rainbowColors.count > 0)
     {
-        CGFloat rainbowStipeHeight = floor([self bounds].size.height / [sNCProgressIndicatorRainbowColors count]);
-        CGFloat rightEdge          = floor([self NC_PROGRESS_INDICATOR_METHOD(percentValue)] * [self bounds].size.width - kNCProgressIndicatorRainbowSegmentWidth);
+        CGFloat rainbowStipeHeight = floor(self.bounds.size.height / self.class.rainbowColors.count);
+        CGFloat rightEdge          = floor(self.percentValue * self.bounds.size.width - kNCProgressIndicatorRainbowSegmentWidth);
         
-        if ([self controlSize] == NSSmallControlSize)
+        if (self.controlSize == NSControlSizeSmall)
         {
             rightEdge -= kNCProgressIndicatorSmallRainbowOffset;
         }
@@ -630,15 +410,15 @@ static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
             rightEdge -= kNCProgressIndicatorRegularRainbowOffset;
         }
         
-        BOOL offsetColumn = frameCount % kNCProgressIndicatorRainbowPeriod >= kNCProgressIndicatorRainbowPeriod / 2;
+        BOOL offsetColumn = frameNum % kNCProgressIndicatorRainbowPeriod >= kNCProgressIndicatorRainbowPeriod / 2;
         
         NSInteger stripeColorIndex = 0;
         
-        if ([self isIndeterminate])
+        if (self.indeterminate)
         {
-            stripeColorIndex = [sNCProgressIndicatorRainbowColors count] - ((frameCount / 2) % [sNCProgressIndicatorRainbowColors count]);
+            stripeColorIndex = self.class.rainbowColors.count - ((frameNum / 2) % self.class.rainbowColors.count);
             
-            if (stripeColorIndex == [sNCProgressIndicatorRainbowColors count])
+            if (stripeColorIndex == self.class.rainbowColors.count)
             {
                 stripeColorIndex = 0;
             }
@@ -646,27 +426,27 @@ static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
         
         while (rightEdge > 0)
         {
-            for (NSInteger row = 0; row < [sNCProgressIndicatorRainbowColors count]; ++ row)
+            for (NSInteger row = 0; row < self.class.rainbowColors.count; ++ row)
             {
                 NSRect stripe = NSMakeRect(rightEdge - kNCProgressIndicatorRainbowSegmentWidth,
                                            row * rainbowStipeHeight,
                                            kNCProgressIndicatorRainbowSegmentWidth,
                                            rainbowStipeHeight);
                 
-                if ([self NC_PROGRESS_INDICATOR_METHOD(shouldResize)])
+                if (self.shouldResize)
                 {
                     stripe.origin.y += 1;
                 }
                 
-                if ([self NC_PROGRESS_INDICATOR_METHOD(bouncesRainbow)] && offsetColumn)
+                if (self.bouncesRainbow && offsetColumn)
                 {
                     stripe.origin.y += 1;
                 }
                 
-                [[sNCProgressIndicatorRainbowColors objectAtIndex:stripeColorIndex] set];
+                [(NSColor *) self.class.rainbowColors[stripeColorIndex] set];
                 [NSBezierPath fillRect:stripe];
                 
-                stripeColorIndex = (stripeColorIndex + 1) % [sNCProgressIndicatorRainbowColors count];
+                stripeColorIndex = (stripeColorIndex + 1) % self.class.rainbowColors.count;
             }
                     
             rightEdge -= kNCProgressIndicatorRainbowSegmentWidth;
@@ -675,235 +455,85 @@ static NSArray*                   sNCProgressIndicatorRainbowColors     = nil;
     }
 }
 
-- (void)NC_PROGRESS_INDICATOR_METHOD(drawSprite:(NSRect)dirtyRect frameCount:(NSUInteger)frameCount)
+- (void)drawSprite:(NSRect)dirtyRect frameNum:(NSUInteger)frameNum
 {
-    NSArray* catSprites = nil;
+    NSArray<NSImage*>* catSprites = nil;
     
-    if ([self controlSize] == NSRegularControlSize)
+    if (self.controlSize == NSControlSizeRegular)
     {
-        catSprites = sNCProgressIndicatorRegularCatSprites;
+        catSprites = self.class.regularCatSprites;
     }
     else
     {
-        catSprites = sNCProgressIndicatorSmallCatSprites;
+        catSprites = self.class.smallCatSprites;
     }
     
-    if (catSprites != nil && [catSprites count] > 0)
+    if (catSprites != nil && catSprites.count > 0)
     {
-        NSImage* sprite = [catSprites objectAtIndex:frameCount % [catSprites count]];
-        
-        [sprite drawAtPoint:NSMakePoint(floor([self NC_PROGRESS_INDICATOR_METHOD(percentValue)] * [self bounds].size.width - [sprite size].width), 0)
-                   fromRect:NSZeroRect
-                  operation:NSCompositeSourceOver
-                   fraction:1.0];
+        NSImage *sprite = catSprites[frameNum % catSprites.count];
+
+        NSRect target = NSMakeRect(floor(self.percentValue * self.bounds.size.width - sprite.size.width),
+                                   0,
+                                   sprite.size.width,
+                                   sprite.size.height);
+
+        [sprite drawInRect:target
+                  fromRect:NSZeroRect
+                 operation:NSCompositingOperationSourceOver
+                  fraction:1.0
+            respectFlipped:YES
+                     hints:nil];
     }
 }
 
-- (BOOL)NC_PROGRESS_INDICATOR_METHOD(isFlipped)
+- (BOOL)overridesDrawing
+{
+    return self.style == NSProgressIndicatorBarStyle;
+}
+
+- (BOOL)bouncesRainbow
+{
+    return self.style == NSProgressIndicatorBarStyle && self.controlSize == NSControlSizeRegular;
+}
+
+- (BOOL)shouldResize
+{
+    return self.style == NSProgressIndicatorBarStyle && self.controlSize == NSControlSizeRegular;
+}
+
+#pragma mark - NSProgressIndicator Accessors
+
+- (double)percentValue
+{
+    if (self.indeterminate)
+    {
+        return 1.0;
+    }
+    else
+    {
+        return (self.doubleValue - self.minValue) / (self.maxValue - self.minValue);
+    }
+}
+
+- (BOOL)isFlipped
 {
     return YES;
 }
 
-#ifdef NC_PROGRESS_INDICATOR_SIMBL_PLUGIN
-
-+ (void)load
+- (void)setControlSize:(NSControlSize)controlSize
 {
-    NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
-    
-    BOOL succeeded = YES;
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(setup)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(setup))),
-                                "v@:");
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(startAnimationTimerIfNeeded)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(startAnimationTimerIfNeeded))),
-                                "v@:");
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(startAnimationThreadIfNeeded)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(startAnimationThreadIfNeeded))),
-                                "v@:");
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(drawsSizeAndStyle))),
-                                "B@:");
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(shouldResize)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(shouldResize))),
-                                "B@:");
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(bouncesRainbow)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(bouncesRainbow))),
-                                "B@:");
-    
-    succeeded = class_addMethod([NSProgressIndicator class],
-                                @selector(NC_PROGRESS_INDICATOR_METHOD(percentValue)),
-                                class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(percentValue))),
-                                "d@:");
-    
-    char* nsRectType     = { 0 };
-    char  types[37]      = { 0 };
-    if (sizeof(CGFloat) == sizeof(double))
+    if (self.isAnimating)
     {
-        nsRectType = "{NSRect={CGPoint=dd}{CGSize=dd}}";
+        [self stopAnimation:nil];
+        [super setControlSize:controlSize];
+        [self startAnimation:nil];
     }
     else
     {
-        nsRectType = "{NSRect={CGPoint=ff}{CGSize=ff}}";
+        [super setControlSize:controlSize];
     }
-    
-    sprintf(types, "v@:%s", nsRectType);
-    
-    if (sizeof(NSUInteger) == sizeof(unsigned int))
-    {
-        types[35] = 'I';
-    }
-    else
-    {
-        types[35] = 'L';
-    }
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(drawBackground:frameCount:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(drawBackground:frameCount:))),
-                                             types);
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(drawRainbow:frameCount:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(drawRainbow:frameCount:))),
-                                             types);
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(drawStars:frameCount:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(drawStars:frameCount:))),
-                                             types);
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(drawSprite:frameCount:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(drawSprite:frameCount:))),
-                                             types);
-    
-    types[35] = '\0';
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(initWithCoder:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(initWithCoder:))),
-                                             "v@:@");
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(dealloc)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(dealloc))),
-                                             "v@:");
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(setUsesThreadedAnimation:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(setUsesThreadedAnimation:))),
-                                             "v@:B");
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(sizeToFit)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(sizeToFit))),
-                                             "v@:");
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(startAnimation:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(startAnimation:))),
-                                             "v@:@");
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(stopAnimation:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(stopAnimation:))),
-                                             "v@:@");
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(drawRect:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(drawRect:))),
-                                             types);
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(isFlipped)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(isFlipped))),
-                                             "v@:");
-    
-    types[0] = '@';
-    
-    succeeded = succeeded && class_addMethod([NSProgressIndicator class],
-                                             @selector(NC_PROGRESS_INDICATOR_METHOD(initWithFrame:)),
-                                             class_getMethodImplementation(self, @selector(NC_PROGRESS_INDICATOR_METHOD(initWithFrame:))),
-                                             types);
-    
-    if (succeeded)
-    {
-        NSArray* unswizzledSelectors = [[NSArray alloc] initWithObjects:[NSValue valueWithPointer:@selector(initWithFrame:)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(initWithFrame:))],
-                                        [NSValue valueWithPointer:@selector(initWithCoder:)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(initWithCoder:))],
-                                        [NSValue valueWithPointer:@selector(dealloc)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(dealloc))],
-                                        [NSValue valueWithPointer:@selector(setUsesThreadedAnimation:)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(setUsesThreadedAnimation:))],
-                                        [NSValue valueWithPointer:@selector(sizeToFit)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(sizeToFit))],
-                                        [NSValue valueWithPointer:@selector(startAnimation:)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(startAnimation:))],
-                                        [NSValue valueWithPointer:@selector(stopAnimation:)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(stopAnimation:))],
-                                        [NSValue valueWithPointer:@selector(drawRect:)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(drawRect:))],
-                                        [NSValue valueWithPointer:@selector(isFlipped)],
-                                        [NSValue valueWithPointer:@selector(NC_PROGRESS_INDICATOR_METHOD(isFlipped))],
-                                        nil];
-        
-        NSMutableArray* swizzledSelectors = [[NSMutableArray alloc] initWithCapacity:18];
-        
-        for (NSUInteger i = 0; i < [unswizzledSelectors count] && succeeded; i += 2)
-        {
-            NSError* error = nil;
-            succeeded = [NSProgressIndicator jr_swizzleMethod:[[unswizzledSelectors objectAtIndex:i] pointerValue]
-                                                   withMethod:[[unswizzledSelectors objectAtIndex:i + 1] pointerValue]
-                                                        error:nil];
-            
-            if (error != nil)
-            {
-                NSLog(@"%@", [error localizedDescription]);
-            }
-            
-            if (succeeded)
-            {
-                [swizzledSelectors addObject:[unswizzledSelectors objectAtIndex:i + 1]];
-                [swizzledSelectors addObject:[unswizzledSelectors objectAtIndex:i]];
-            }
-        }
-        
-        if (!succeeded)
-        {
-            for (NSUInteger i = 0; i < [swizzledSelectors count] && succeeded; i += 2)
-            {
-                NSError* error = nil;
-                [NSProgressIndicator jr_swizzleMethod:[[swizzledSelectors objectAtIndex:i] pointerValue]
-                                           withMethod:[[swizzledSelectors objectAtIndex:i + 1] pointerValue]
-                                                error:nil];
-                
-                if (error != nil)
-                {
-                    NSLog(@"%@", [error localizedDescription]);
-                }
-            }
-        }
-        
-        [unswizzledSelectors release];
-        [swizzledSelectors   release];
-    }
-    
-    [pool drain];
 }
 
-#endif
-
 @end
+
+NS_ASSUME_NONNULL_END

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011 Michael Buckley
+/* Copyright (c) 2011-2017 Michael Buckley
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,10 +30,11 @@
  * http://www.prguitarman.com/index.php?id=348
  */
 
-#import <Cocoa/Cocoa.h>
+@import Cocoa;
 
+NS_ASSUME_NONNULL_BEGIN
 
-@interface NCProgressIndicator : NSProgressIndicator {
-}
-
+@interface NCProgressIndicator : NSProgressIndicator
 @end
+
+NS_ASSUME_NONNULL_END
