@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017 Michael Buckley
+/* Copyright (c) 2011-2018 Michael Buckley
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -40,7 +40,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, assign) BOOL bouncesRainbow;
 @property (nonatomic, readonly, assign) BOOL shouldResize;
 @property (nonatomic, readwrite, assign, getter=isAnimating) BOOL animating;
-@property (nonatomic, readwrite, assign) NSInteger occulsionCount;
 @property (nonatomic, readonly, assign) double percentValue;
 
 @property (class, nonatomic, readonly) NSBundle* bundle;
@@ -78,7 +77,6 @@ static dispatch_source_t animationTimer;
 @dynamic percentValue;
 
 @synthesize animating;
-@synthesize occulsionCount;
 
 - (void)dealloc
 {
@@ -92,7 +90,8 @@ static dispatch_source_t animationTimer;
     static dispatch_once_t onceToken = 0;
     static NSBundle* bundle = nil;
 
-    dispatch_once(&onceToken, ^{
+    dispatch_once(&onceToken, ^
+    {
         bundle = [NSBundle bundleWithIdentifier:@"com.buckleyisms.NCProgressIndicator"];
     });
 
@@ -153,7 +152,8 @@ static dispatch_source_t animationTimer;
     static dispatch_once_t onceToken = 0;
     static NSArray<NSColor*>* rainbowColors = nil;
 
-    dispatch_once(&onceToken, ^{
+    dispatch_once(&onceToken, ^
+    {
         rainbowColors = @[[NSColor colorWithDeviceRed:1.0 green:0   blue:0   alpha:1.0],
                           [NSColor colorWithDeviceRed:1.0 green:0.6 blue:0   alpha:1.0],
                           [NSColor colorWithDeviceRed:1.0 green:1.0 blue:0   alpha:1.0],
@@ -182,7 +182,8 @@ static dispatch_source_t animationTimer;
 {
     static dispatch_once_t onceToken = 0;
 
-    dispatch_once(&onceToken, ^{
+    dispatch_once(&onceToken, ^
+    {
         animationTimerQueue = dispatch_queue_create("com.buckleyisms.NCProgressIndicator.timer", DISPATCH_QUEUE_SERIAL);
         animationTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, animationTimerQueue);
 
@@ -254,41 +255,34 @@ static dispatch_source_t animationTimer;
 {
     if (self.window.occlusionState & NSWindowOcclusionStateVisible)
     {
-        if (self.occulsionCount > 0)
+        if (self.overridesDrawing)
         {
             [self startAnimation:self];
-            self.occulsionCount = 0;
         }
-    }
-    else if (self.isAnimating)
-    {
-        // After this method returns, Appkit will immediately call
-        // -stopAnimation:, which will decrement this to 1. If the user calls
-        // -stopAnimation while the window is still occluded, it will be
-        // decremented again, so we don't restart the animation when the window
-        // becomes visible again.
-        self.occulsionCount = 2;
     }
 }
 
 - (void)startAnimation:(nullable id)sender
 {
-    self.animating = YES;
-
     if (self.overridesDrawing)
     {
-        dispatch_async(self.class.queue, ^
-                       {
-                           if (![self.class.animatingViews containsObject: self])
-                           {
-                               [self.class.animatingViews addObject: self];
+        if (!self.isAnimating)
+        {
+            self.animating = YES;
 
-                               if (self.class.animatingViews.count == 1)
-                               {
-                                   dispatch_resume(self.class.animationTimer);
-                               }
-                           }
-                       });
+            dispatch_async(self.class.queue, ^
+            {
+                if (![self.class.animatingViews containsObject: self])
+                {
+                    [self.class.animatingViews addObject: self];
+
+                    if (self.class.animatingViews.count == 1)
+                    {
+                        dispatch_resume(self.class.animationTimer);
+                    }
+                }
+            });
+        }
     }
     else
     {
@@ -298,24 +292,22 @@ static dispatch_source_t animationTimer;
 
 - (void)stopAnimation:(nullable id)sender
 {
-    self.animating = NO;
-
     if (self.overridesDrawing)
     {
-        if (self.occulsionCount > 0)
+        if (self.isAnimating)
         {
-            --self.occulsionCount;
+            self.animating = NO;
+
+            dispatch_async(self.class.queue, ^
+            {
+                [self.class.animatingViews removeObject: self];
+
+                if (self.class.animatingViews.count == 0)
+                {
+                    dispatch_suspend(self.class.animationTimer);
+                }
+            });
         }
-
-        dispatch_async(self.class.queue, ^
-                       {
-                           [self.class.animatingViews removeObject: self];
-
-                           if (self.class.animatingViews.count == 0)
-                           {
-                               dispatch_suspend(self.class.animationTimer);
-                           }
-                       });
     }
     else
     {
